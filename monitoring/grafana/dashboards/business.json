@@ -1,0 +1,277 @@
+{
+  "uid": "fraud-business",
+  "title": "04 Business segments",
+  "schemaVersion": 40,
+  "version": 1,
+  "tags": [
+    "fraud",
+    "seminar-11"
+  ],
+  "timezone": "browser",
+  "editable": false,
+  "refresh": "2s",
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "1s",
+      "2s",
+      "5s",
+      "10s",
+      "30s"
+    ]
+  },
+  "annotations": {
+    "list": []
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "state",
+        "label": "US State",
+        "type": "query",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "fraud-pg"
+        },
+        "query": "SELECT DISTINCT us_state AS __text, us_state AS __value FROM transaction_scores ORDER BY 1",
+        "definition": "SELECT DISTINCT us_state AS __text, us_state AS __value FROM transaction_scores ORDER BY 1",
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "options": [],
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        }
+      },
+      {
+        "name": "merch",
+        "label": "Merchant",
+        "type": "query",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "fraud-pg"
+        },
+        "query": "SELECT DISTINCT merch AS __text, merch AS __value FROM transaction_scores WHERE us_state IN (${state:sqlstring}) ORDER BY 1",
+        "definition": "SELECT DISTINCT merch AS __text, merch AS __value FROM transaction_scores WHERE us_state IN (${state:sqlstring}) ORDER BY 1",
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "options": [],
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Score probability density by State and Merchant",
+      "description": "20 bins of width 0.05. Height = count / selected total / bin width; the area sums to 1. State and Merchant filters apply.",
+      "type": "barchart",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "fraud-pg"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "fraud-pg"
+          },
+          "rawSql": "WITH selected AS (\n  SELECT score FROM transaction_scores WHERE $__timeFilter(processed_at) AND us_state IN (${state:sqlstring}) AND merch IN (${merch:sqlstring})\n), counts AS (\n  SELECT least(floor(score * 20)::int, 19) AS bin, count(*) AS n FROM selected GROUP BY 1\n)\nSELECT to_char((b.bin + 0.5) / 20.0, 'FM0.000') AS score_bin,\n       coalesce(c.n, 0)::double precision / greatest((SELECT count(*) FROM selected), 1) / 0.05 AS density\nFROM generate_series(0,19) AS b(bin) LEFT JOIN counts c ON b.bin = c.bin ORDER BY b.bin",
+          "rawQuery": true,
+          "format": "table",
+          "editorMode": "code"
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "auto",
+        "showValue": "auto",
+        "groupWidth": 0.85,
+        "barWidth": 0.85,
+        "stacking": "none",
+        "legend": {
+          "showLegend": false
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 2,
+      "title": "Processing TPS by State and Merchant",
+      "description": "Scoring timestamps, not CSV historical timestamps. Ten-second buckets; State and Merchant filters apply.",
+      "type": "timeseries",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "fraud-pg"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "fraud-pg"
+          },
+          "rawSql": "SELECT $__timeGroupAlias(processed_at, '10s', 0), count(*) / 10.0 AS tps\nFROM transaction_scores WHERE $__timeFilter(processed_at) AND us_state IN (${state:sqlstring}) AND merch IN (${merch:sqlstring})\nGROUP BY 1 ORDER BY 1",
+          "rawQuery": true,
+          "format": "time_series",
+          "editorMode": "code"
+        }
+      ],
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "Fraud share by category in the latest 1000 transactions",
+      "description": "Global last 1000 unique stored transactions by ingestion order; independent of time and segment filters. Fewer rows are used during warm-up.",
+      "type": "barchart",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "fraud-pg"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "fraud-pg"
+          },
+          "rawSql": "WITH recent AS (\n  SELECT cat_id, fraud_flag FROM transaction_scores ORDER BY ingestion_id DESC LIMIT 1000\n)\nSELECT cat_id, avg(fraud_flag)::double precision AS fraud_share FROM recent\nGROUP BY cat_id ORDER BY fraud_share DESC, cat_id",
+          "rawQuery": true,
+          "format": "table",
+          "editorMode": "code"
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "auto",
+        "showValue": "auto",
+        "groupWidth": 0.85,
+        "barWidth": 0.85,
+        "stacking": "none",
+        "legend": {
+          "showLegend": false
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 4,
+      "title": "Top 10 merchants by flagged transaction amount",
+      "description": "Sum of amount for predicted fraud. State, Merchant and time filters apply. Potential exposure in source amount units; not a measured loss.",
+      "type": "barchart",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "fraud-pg"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "fraud-pg"
+          },
+          "rawSql": "SELECT merch, sum(amount * fraud_flag) AS flagged_amount\nFROM transaction_scores WHERE $__timeFilter(processed_at) AND us_state IN (${state:sqlstring}) AND merch IN (${merch:sqlstring})\nGROUP BY merch ORDER BY flagged_amount DESC NULLS LAST, merch LIMIT 10",
+          "rawQuery": true,
+          "format": "table",
+          "editorMode": "code"
+        }
+      ],
+      "gridPos": {
+        "x": 12,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "auto",
+        "showValue": "auto",
+        "groupWidth": 0.85,
+        "barWidth": 0.85,
+        "stacking": "none",
+        "legend": {
+          "showLegend": false
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    }
+  ]
+}

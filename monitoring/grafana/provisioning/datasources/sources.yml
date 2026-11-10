@@ -1,0 +1,29 @@
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    uid: fraud-prom
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      timeInterval: 1s
+      httpMethod: POST
+  - name: Fraud PostgreSQL
+    uid: fraud-pg
+    type: grafana-postgresql-datasource
+    access: proxy
+    url: scores-db:5432
+    user: grafana_reader
+    editable: false
+    secureJsonData:
+      password: $SCORES_READER_PASSWORD
+    jsonData:
+      database: scores
+      sslmode: disable
+      postgresVersion: 1500
+      timescaledb: false
+      maxOpenConns: 5
+      maxIdleConns: 2
+      connMaxLifetime: 14400
